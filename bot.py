@@ -1,8 +1,7 @@
 import os
 import re
 import logging
-from datetime import datetime
-from telegram import Update
+from telegram import Update, ReactionTypeEmoji
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from sheets import append_row
 
@@ -12,58 +11,68 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = int(os.environ.get("CHAT_ID", "0"))
 
-# Синонимы для типа оплаты
 CASH_WORDS = ["нал", "наличные", "наличка", "cash"]
 CARD_WORDS = ["безнал", "карта", "картой", "перевод", "безналичные", "card"]
 
 
-def parse_expense(text: str):
+def parse_transaction(text: str):
     """
-    Парсит сообщение вида:
+    Формат: [+/-] СУММА ОПИСАНИЕ нал/безнал
+    Примеры:
       -2000 электрика нал
-      -1500 продукты безнал
-      -500 такси картой
-
-    Возвращает (сумма, категория, тип_оплаты) или None если не похоже на расход.
+      +1500 принял от назара безнал
+      -800 такси картой
     """
     text = text.strip()
 
-    # Ищем сумму — число со знаком минус (или без)
-    amount_match = re.match(r"^[-−]?\s*(\d[\d\s]*)", text)
+    # Знак
+    if text.startswith("+"):
+        sign = "+"
+        text = text[1:].strip()
+        tx_type = "приход"
+    elif text.startswith("-") or text.startswith("−"):
+        sign = "-"
+        text = text[1:].strip()
+        tx_type = "расход"
+    else:
+        sign = "-"
+        tx_type = "расход"
+
+    # Сумма в начале
+    amount_match = re.match(r"^(\d[\d\s]*\.?\d*)", text)
     if not amount_match:
         return None
 
     amount_str = amount_match.group(1).replace(" ", "")
-    amount = f"-{amount_str}"  # всегда делаем отрицательным (расход)
+    try:
+        float(amount_str)
+    except ValueError:
+        return None
 
-    # Остаток текста после суммы
+    amount = f"{sign}{amount_str}"
     rest = text[amount_match.end():].strip()
+
     if not rest:
         return None
 
-    # Ищем тип оплаты в конце строки
-    payment_type = "не указан"
+    # Тип оплаты — ищем ПОСЛЕДНЕЕ слово
     words = rest.split()
+    payment_type = "не указан"
 
-    for i, word in enumerate(reversed(words)):
-        w = word.lower().strip(".,!?")
-        if w in CASH_WORDS:
-            payment_type = "нал"
-            words = words[:len(words) - 1 - i] + words[len(words) - i:]
-            words.pop(len(words) - 1 - i)
-            break
-        elif w in CARD_WORDS:
-            payment_type = "безнал"
-            words = words[:len(words) - 1 - i] + words[len(words) - i:]
-            words.pop(len(words) - 1 - i)
-            break
+    last_word = words[-1].lower().strip(".,!?")
+    if last_word in CASH_WORDS:
+        payment_type = "нал"
+        words = words[:-1]
+    elif last_word in CARD_WORDS:
+        payment_type = "безнал"
+        words = words[:-1]
 
-    # Всё что осталось — категория/описание
-    category = " ".join(words).strip(" .,!?")
+    # Всё остальное — категория
+    category = " ".join(words).strip()
     if not category:
         category = "без категории"
 
-    return amount, category, payment_type
+    return amount, category, payment_type, tx_type
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,16 +87,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
-    result = parse_expense(text)
+    result = parse_transaction(text)
     if result is None:
-        return  # Не похоже на расход — просто игнорируем
+        return
 
-    amount, category, payment_type = result
-
-    # Дата и время сообщения
+    amount, category, payment_type, tx_type = result
     date_str = message.date.strftime("%d.%m.%Y")
 
-    # Имя отправителя
     if message.from_user:
         first = message.from_user.first_name or ""
         last = message.from_user.last_name or ""
@@ -95,31 +101,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         sender = message.chat.title or "канал"
 
-    row = [date_str, amount, category, payment_type, sender]
+    row = [date_str, amount, category, payment_type, tx_type, sender]
 
     try:
         append_row(row)
-        logger.info(f"✅ Записан расход: {row}")
-
-        # Подтверждение в чат
-        await message.reply_text(
-            f"✅ Записано!\n"
-            f"💸 Сумма: {amount} ₽\n"
-            f"📌 Категория: {category}\n"
-            f"💳 Оплата: {payment_type}"
-        )
+        logger.info(f"✅ Записано: {row}")
+        # Ставим реакцию ✅ на сообщение
+        await message.set_reaction(ReactionTypeEmoji("✅"))
     except Exception as e:
         logger.error(f"❌ Ошибка записи: {e}")
-        await message.reply_text("❌ Ошибка при записи в таблицу. Проверь настройки.")
 
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(MessageHandler(
-        filters.TEXT | filters.CAPTION,
-        handle_message
-    ))
+    app.add_handler(MessageHandler(filters.TEXT | filters.CAPTION, handle_message))
 
     port = int(os.environ.get("PORT", 8080))
     webhook_url = os.environ.get("WEBHOOK_URL")
@@ -133,7 +128,7 @@ def main():
             url_path="/webhook",
         )
     else:
-        logger.info("🔄 Polling mode (локально)")
+        logger.info("🔄 Polling mode")
         app.run_polling()
 
 
