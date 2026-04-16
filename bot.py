@@ -49,7 +49,10 @@ def parse_transaction(text: str):
     except ValueError:
         return None
 
-    amount = f"{sign}{amount_str}"
+    if sign == "-":
+    amount = f"-{amount_str}"
+else:
+    amount = amount_str  # приход без плюса — просто число
     rest = text[amount_match.end():].strip()
 
     if not rest:
