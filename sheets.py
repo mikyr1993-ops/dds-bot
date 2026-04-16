@@ -39,7 +39,6 @@ def get_sheet():
 
 def append_row(row: list):
     sheet = get_sheet()
-    # Смотрим только столбец A — первая пустая строка там
     col_a = sheet.col_values(1)
     next_row = len(col_a) + 1
-    sheet.update(f"A{next_row}:F{next_row}", [row])
+    sheet.update(f"A{next_row}:F{next_row}", [row], value_input_option="USER_ENTERED")
