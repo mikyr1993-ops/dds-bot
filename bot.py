@@ -50,9 +50,9 @@ def parse_transaction(text: str):
         return None
 
     if sign == "-":
-    amount = f"-{amount_str}"
-else:
-    amount = amount_str  # приход без плюса — просто число
+        amount = f"-{amount_str}"
+    else:
+        amount = amount_str  # приход без плюса — просто число
     rest = text[amount_match.end():].strip()
 
     if not rest:
