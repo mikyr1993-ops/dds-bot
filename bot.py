@@ -15,35 +15,36 @@ CASH_WORDS = ["нал", "наличные", "наличка", "cash"]
 CARD_WORDS = ["безнал", "карта", "картой", "перевод", "безналичные", "card"]
 
 
-def parse_transaction(text: str):
+def parse_line(line: str):
     """
-    Формат: [+/-] СУММА ОПИСАНИЕ нал/безнал
-    Примеры:
+    Парсит одну строку вида:
       -2000 электрика нал
       +1500 принял от назара безнал
-      -800 такси картой
+      -21,67 гайки
     """
-    text = text.strip()
+    line = line.strip()
+    if not line:
+        return None
 
     # Знак
-    if text.startswith("+"):
+    if line.startswith("+"):
         sign = "+"
-        text = text[1:].strip()
+        line = line[1:].strip()
         tx_type = "приход"
-    elif text.startswith("-") or text.startswith("−"):
+    elif line.startswith("-") or line.startswith("−"):
         sign = "-"
-        text = text[1:].strip()
+        line = line[1:].strip()
         tx_type = "расход"
     else:
         sign = "-"
         tx_type = "расход"
 
-    # Сумма в начале
-    amount_match = re.match(r"^(\d[\d\s]*\.?\d*)", text)
+    # Сумма — поддержка и точки и запятой
+    amount_match = re.match(r"^(\d[\d\s]*[,.]?\d*)", line)
     if not amount_match:
         return None
 
-    amount_str = amount_match.group(1).replace(" ", "")
+    amount_str = amount_match.group(1).replace(" ", "").replace(",", ".")
     try:
         float(amount_str)
     except ValueError:
@@ -52,13 +53,15 @@ def parse_transaction(text: str):
     if sign == "-":
         amount = f"-{amount_str}"
     else:
-        amount = amount_str  # приход без плюса — просто число
-    rest = text[amount_match.end():].strip()
+        amount = amount_str
 
+    rest = line[amount_match.end():].strip()
     if not rest:
-        return None
+        category = "без категории"
+        payment_type = "не указан"
+        return amount, category, payment_type, tx_type
 
-    # Тип оплаты — ищем ПОСЛЕДНЕЕ слово
+    # Тип оплаты — последнее слово
     words = rest.split()
     payment_type = "не указан"
 
@@ -70,7 +73,6 @@ def parse_transaction(text: str):
         payment_type = "безнал"
         words = words[:-1]
 
-    # Всё остальное — категория
     category = " ".join(words).strip()
     if not category:
         category = "без категории"
@@ -90,11 +92,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
-    result = parse_transaction(text)
-    if result is None:
+    # Разбиваем на строки и парсим каждую
+    lines = text.strip().split("\n")
+    results = []
+    for line in lines:
+        result = parse_line(line)
+        if result:
+            results.append(result)
+
+    if not results:
         return
 
-    amount, category, payment_type, tx_type = result
     date_str = message.date.strftime("%d.%m.%Y")
 
     if message.from_user:
@@ -104,12 +112,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         sender = message.chat.title or "канал"
 
-    row = [date_str, amount, category, payment_type, tx_type, sender]
-
     try:
-        append_row(row)
-        logger.info(f"✅ Записано: {row}")
-        # Ставим реакцию ✅ на сообщение
+        for amount, category, payment_type, tx_type in results:
+            row = [date_str, amount, category, payment_type, tx_type, sender]
+            append_row(row)
+            logger.info(f"✅ Записано: {row}")
+
         await message.set_reaction(ReactionTypeEmoji("✅"))
     except Exception as e:
         logger.error(f"❌ Ошибка записи: {e}")
