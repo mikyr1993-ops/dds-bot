@@ -20,20 +20,15 @@ def parse_line(line: str):
     if not line:
         return None
 
-    # Знак
     if line.startswith("+"):
         sign = "+"
         line = line[1:].strip()
-        tx_type = "приход"
     elif line.startswith("-") or line.startswith("−"):
         sign = "-"
         line = line[1:].strip()
-        tx_type = "расход"
     else:
         sign = "-"
-        tx_type = "расход"
 
-    # Сумма — поддержка и точки и запятой
     amount_match = re.match(r"^(\d[\d\s]*[,.]?\d*)", line)
     if not amount_match:
         return None
@@ -44,7 +39,6 @@ def parse_line(line: str):
     except ValueError:
         return None
 
-    # ✅ Передаём как float, а не строку
     if sign == "-":
         amount = -float(amount_str)
     else:
@@ -52,11 +46,8 @@ def parse_line(line: str):
 
     rest = line[amount_match.end():].strip()
     if not rest:
-        category = "без категории"
-        payment_type = "не указан"
-        return amount, category, payment_type, tx_type
+        return amount, "без категории", "не указан"
 
-    # Тип оплаты — последнее слово
     words = rest.split()
     payment_type = "не указан"
 
@@ -72,7 +63,7 @@ def parse_line(line: str):
     if not category:
         category = "без категории"
 
-    return amount, category, payment_type, tx_type
+    return amount, category, payment_type
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -87,7 +78,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
-    # Разбиваем на строки и парсим каждую
     lines = text.strip().split("\n")
     results = []
     for line in lines:
@@ -108,8 +98,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sender = message.chat.title or "канал"
 
     try:
-        for amount, category, payment_type, tx_type in results:
-            row = [date_str, amount, category, payment_type, tx_type, sender]
+        for amount, category, payment_type in results:
+            row = [date_str, amount, category, payment_type, "", sender]
             append_row(row)
             logger.info(f"✅ Записано: {row}")
 
