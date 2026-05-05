@@ -18,12 +18,12 @@ def get_sheet():
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
     spreadsheet = client.open_by_key(os.environ["SPREADSHEET_ID"])
-    
     now = datetime.now()
     sheet_name = f"{MONTH_NAMES[now.month]} {now.year}"
-    
     return spreadsheet.worksheet(sheet_name)
 
 def append_row(row):
     sheet = get_sheet()
-    sheet.append_row(row, value_input_option="USER_ENTERED")
+    col_a = sheet.col_values(1)
+    next_row = len(col_a) + 1
+    sheet.update(f"A{next_row}:F{next_row}", [row])
