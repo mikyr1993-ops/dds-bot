@@ -26,4 +26,6 @@ def append_row(row):
     sheet = get_sheet()
     col_a = sheet.col_values(1)
     next_row = len(col_a) + 1
-    sheet.update(f"A{next_row}:F{next_row}", [row])
+    # Пишем A-D и F, пропускаем E (назначение — ручное)
+    sheet.update(f"A{next_row}:D{next_row}", [row[:4]])
+    sheet.update(f"F{next_row}", [[row[5]]])
